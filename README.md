@@ -140,6 +140,7 @@ These limitations are explicitly documented in the SRS.
 - **AI engine:** emotion inference and its training script; an item-similarity recommendation model with training, serving, and offline evaluation (HitRate@K, MRR@K).
 - **Assessments:** PHQ-9, WHO-5, and SCL-90 definitions used by the scoring service.
 - **Infrastructure:** Docker Compose setup, CI workflows for the AI engine, backend, and iOS tests, and Firebase security rules.
+- **Documentation:** the AI engine sections of the SRS, SDS, and Test Specification.
 
 ## Team
 
