@@ -134,12 +134,19 @@ These limitations are explicitly documented in the SRS.
     pip install -r requirements.txt
     python inference/predict.py
 
-###Team Members
+## My contributions (Elif Kanık)
+
+- **Backend API (FastAPI):** endpoints for chat, mood, assessments, reports, and AI; services for assessment scoring, encryption, Firebase access, and the bridge to the AI engine; request validation; pytest suites for assessments, chat, mood, and reports.
+- **AI engine:** emotion inference and its training script; an item-similarity recommendation model with training, serving, and offline evaluation (HitRate@K, MRR@K).
+- **Assessments:** PHQ-9, WHO-5, and SCL-90 definitions used by the scoring service.
+- **Infrastructure:** Docker Compose setup, CI workflows for the AI engine, backend, and iOS tests, and Firebase security rules.
+
+## Team
 
 Can Sar
 Elif Kanık
 Berkay Aydın
 Mert Doruk Özdemir
 
-###License
+## License
 This project was developed for academic purposes as part of a university course.
