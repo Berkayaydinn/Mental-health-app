@@ -11,6 +11,20 @@ import pandas as pd
 from sklearn.metrics.pairwise import cosine_similarity
 
 
+# How well each activity fits a detected emotion (0 = no fit). When an emotion is known,
+# this fit leads the ranking and the user's collaborative-filtering score breaks ties,
+# so suggestions match how the user feels right now and still lean toward what they like.
+EMOTION_AFFINITY: Dict[str, Dict[str, float]] = {
+    "anxious":  {"breathing_exercise": 1.0, "mindfulness_video": 0.6},
+    "stressed": {"breathing_exercise": 0.8, "mindfulness_video": 0.8},
+    "sad":      {"journaling_prompt": 1.0, "mindfulness_video": 0.5},
+    "angry":    {"breathing_exercise": 0.8, "journaling_prompt": 0.6},
+    "happy":    {"journaling_prompt": 0.5},
+    "neutral":  {},
+}
+CF_WEIGHT_WITH_EMOTION = 0.3
+
+
 @dataclass
 class RecResult:
     item_id: str
@@ -78,41 +92,44 @@ class IBCFRecommender:
             # items: item_id, title
             self.items_title = {str(r.item_id): str(r.title) for r in items.itertuples(index=False)}
 
-    def recommend(self, user_id: str, k: int = 10) -> List[RecResult]:
+    def recommend(self, user_id: str, k: int = 10, emotion: Optional[str] = None) -> List[RecResult]:
+        """Top-k unrated items for a user. If an emotion is given, items that suit it are boosted."""
         if self.sim is None or self.r_norm is None or self.user_mean is None:
             raise RuntimeError("Model not trained/loaded")
 
         u = str(user_id)
+        n = len(self.item_ids)
         if u not in self.user_index:
-            # cold start: return top popular-ish = items with highest total similarity sum (cheap fallback)
-            simsums = self.sim.sum(axis=1)
-            top_idx = np.argsort(-simsums)[:k]
-            return [RecResult(item_id=self.item_ids[j], score=float(simsums[j]), explanation="Cold start fallback.") for j in top_idx]
+            # Cold start: rank by how connected each item is to the rest of the catalogue.
+            scores = self.sim.sum(axis=1).astype(np.float32)
+            reasons = ["Popular with other users."] * n
+        else:
+            user_vec = self.r_norm[self.user_index[u]]
+            rated = user_vec != 0
+            scores = np.zeros(n, dtype=np.float32)
+            # score(j) = sum_i sim[j,i] * r_norm[u,i] / sum_i |sim[j,i]|, over items i the user rated
+            for j in range(n):
+                if rated[j]:
+                    scores[j] = -np.inf  # never re-recommend something already rated
+                    continue
+                sims = self.sim[j][rated]
+                scores[j] = np.sum(sims * user_vec[rated]) / (np.sum(np.abs(sims)) + 1e-8)
+            reasons = [self._explain(u, it) for it in self.item_ids]
 
-        ui = self.user_index[u]
-        user_vec = self.r_norm[ui]  # normalized ratings
+        fit = EMOTION_AFFINITY.get(emotion or "", {})
+        if fit:
+            finite = np.isfinite(scores)
+            if finite.any():
+                lo, hi = scores[finite].min(), scores[finite].max()
+                scores = np.where(finite, (scores - lo) / ((hi - lo) or 1.0), scores)
+            for j, it in enumerate(self.item_ids):
+                if np.isfinite(scores[j]):
+                    scores[j] = fit.get(it, 0.0) + CF_WEIGHT_WITH_EMOTION * scores[j]
+                    if fit.get(it, 0) > 0:
+                        reasons[j] = f"{reasons[j]} Suggested because you seem {emotion}."
 
-        rated_mask = (user_vec != 0)
-        scores = np.zeros(len(self.item_ids), dtype=np.float32)
-
-        # score(item j) = sum_{i rated} sim[j,i] * r_norm[u,i] / (sum |sim[j,i]| + eps)
-        eps = 1e-8
-        for j in range(len(self.item_ids)):
-            if rated_mask[j]:
-                scores[j] = -np.inf  # don't recommend already rated
-                continue
-            sims = self.sim[j]
-            numer = np.sum(sims[rated_mask] * user_vec[rated_mask])
-            denom = np.sum(np.abs(sims[rated_mask])) + eps
-            scores[j] = numer / denom
-
-        top = np.argsort(-scores)[:k]
-        results: List[RecResult] = []
-        for j in top:
-            it = self.item_ids[j]
-            expl = self._explain(u, it)
-            results.append(RecResult(item_id=it, score=float(scores[j]), explanation=expl))
-        return results
+        top = [j for j in np.argsort(-scores) if np.isfinite(scores[j])][:k]
+        return [RecResult(item_id=self.item_ids[j], score=float(scores[j]), explanation=reasons[j]) for j in top]
 
     def _explain(self, user_id: str, item_id: str) -> str:
         # simple explanation: top 2 similar-to-rated items

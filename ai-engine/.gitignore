@@ -1,0 +1,4 @@
+data/goemotions/
+__pycache__/
+.pytest_cache/
+.venv/

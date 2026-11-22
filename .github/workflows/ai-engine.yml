@@ -1,0 +1,26 @@
+name: AI engine
+
+on:
+  push:
+    paths: ["ai-engine/**", ".github/workflows/ai-engine.yml"]
+  pull_request:
+    paths: ["ai-engine/**"]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ai-engine
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements.txt -r requirements-dev.txt
+      - run: python -m pytest -v
+      - name: Smoke-test the CLI
+        run: |
+          python -m inference.predict --task emotion --text "I can't stop worrying about tomorrow"
+          python -m inference.predict --task recommend --user new_user --emotion anxious --k 2

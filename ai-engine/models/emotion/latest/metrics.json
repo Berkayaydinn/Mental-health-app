@@ -1,0 +1,20 @@
+{
+  "dataset": "GoEmotions (mapped to Nuvio labels)",
+  "model": "TF-IDF (word 1-2 + char 3-5 grams) + LogisticRegression(class_weight=balanced)",
+  "C": 1.0,
+  "test_size": 4690,
+  "accuracy": 0.7047,
+  "macro_f1": 0.6508,
+  "per_class_f1": {
+    "angry": 0.5664,
+    "anxious": 0.627,
+    "happy": 0.7966,
+    "neutral": 0.6971,
+    "sad": 0.567
+  },
+  "trained_at": 1795386163,
+  "keyword_baseline": {
+    "accuracy": 0.4168,
+    "macro_f1": 0.236
+  }
+}

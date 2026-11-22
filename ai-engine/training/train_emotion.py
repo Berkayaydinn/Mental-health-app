@@ -1,90 +1,78 @@
+"""Train Nuvio's emotion classifier on GoEmotions.
+
+TF-IDF over word unigrams/bigrams plus character n-grams, fed to a class-balanced
+logistic regression. The regularisation strength C is picked on the dev split;
+the final numbers are reported once, on the untouched test split.
+
+    bash scripts/download_goemotions.sh
+    python -m training.train_emotion --data data/goemotions --out models/emotion/latest
+"""
 from __future__ import annotations
 
 import argparse
 import json
-from dataclasses import dataclass
+import time
 from pathlib import Path
-from typing import Any, Dict, List, Tuple
 
 import joblib
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.linear_model import LogisticRegression
-from sklearn.pipeline import Pipeline
+from sklearn.metrics import accuracy_score, classification_report, f1_score
+from sklearn.pipeline import FeatureUnion, Pipeline
+
+from training.goemotions import MODEL_LABELS, load_split
 
 
-@dataclass
-class EmotionDataset:
-    texts: List[str]
-    labels: List[str]
-
-
-def _load_samples(sample_json_path: str | Path) -> EmotionDataset:
-    p = Path(sample_json_path)
-    obj = json.loads(p.read_text(encoding="utf-8"))
-
-    # allow either {"samples":[...]} or direct list
-    if isinstance(obj, dict) and "samples" in obj:
-        samples = obj["samples"]
-    elif isinstance(obj, list):
-        samples = obj
-    else:
-        raise ValueError("sample_inputs.json must contain 'samples' list or be a list of samples")
-
-    if not isinstance(samples, list) or len(samples) == 0:
-        raise ValueError("'samples' must be a non-empty list")
-
-    texts: List[str] = []
-    labels: List[str] = []
-    for i, s in enumerate(samples):
-        if not isinstance(s, dict):
-            raise ValueError(f"sample {i} is not an object")
-        if "text" not in s or "label" not in s:
-            raise ValueError(f"sample {i} must have 'text' and 'label'")
-        texts.append(str(s["text"]))
-        labels.append(str(s["label"]))
-
-    return EmotionDataset(texts=texts, labels=labels)
-
-
-def train_emotion_model(texts: List[str], labels: List[str]) -> Pipeline:
-    """
-    Simple NLP classifier:
-    TF-IDF (word ngrams) + Logistic Regression
-    """
-    clf = Pipeline(
-        steps=[
-            ("tfidf", TfidfVectorizer(ngram_range=(1, 2), min_df=1)),
-            ("lr", LogisticRegression(max_iter=1000)),
-        ]
-    )
-    clf.fit(texts, labels)
-    return clf
+def build_model(c: float) -> Pipeline:
+    features = FeatureUnion([
+        ("words", TfidfVectorizer(ngram_range=(1, 2), min_df=2, max_features=60000,
+                                  sublinear_tf=True, strip_accents="unicode")),
+        ("chars", TfidfVectorizer(analyzer="char_wb", ngram_range=(3, 5), min_df=3,
+                                  max_features=60000, sublinear_tf=True)),
+    ])
+    clf = LogisticRegression(C=c, max_iter=2000, class_weight="balanced")
+    return Pipeline([("tfidf", features), ("lr", clf)])
 
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--sample", required=True, help="Path to sample_inputs.json (must include samples list)")
-    ap.add_argument("--out", required=True, help="Output folder, e.g. models/emotion/latest")
+    ap.add_argument("--data", default="data/goemotions", help="folder with train.tsv, dev.tsv, test.tsv")
+    ap.add_argument("--out", default="models/emotion/latest")
     args = ap.parse_args()
 
-    ds = _load_samples(args.sample)
+    data = Path(args.data)
+    x_tr, y_tr = load_split(data / "train.tsv")
+    x_dev, y_dev = load_split(data / "dev.tsv")
+    x_te, y_te = load_split(data / "test.tsv")
+    print(f"train={len(x_tr)} dev={len(x_dev)} test={len(x_te)}")
 
-    model = train_emotion_model(ds.texts, ds.labels)
+    best_c, best_f1 = None, -1.0
+    for c in (0.5, 1.0, 2.0, 4.0):
+        f1 = f1_score(y_dev, build_model(c).fit(x_tr, y_tr).predict(x_dev), average="macro")
+        print(f"C={c:<4} dev macro-F1={f1:.3f}")
+        if f1 > best_f1:
+            best_c, best_f1 = c, f1
 
-    out_dir = Path(args.out)
-    out_dir.mkdir(parents=True, exist_ok=True)
+    model = build_model(best_c).fit(x_tr + x_dev, y_tr + y_dev)
+    pred = model.predict(x_te)
+    report = classification_report(y_te, pred, labels=MODEL_LABELS, output_dict=True, zero_division=0)
+    metrics = {
+        "dataset": "GoEmotions (mapped to Nuvio labels)",
+        "model": "TF-IDF (word 1-2 + char 3-5 grams) + LogisticRegression(class_weight=balanced)",
+        "C": best_c,
+        "test_size": len(y_te),
+        "accuracy": round(accuracy_score(y_te, pred), 4),
+        "macro_f1": round(f1_score(y_te, pred, average="macro"), 4),
+        "per_class_f1": {k: round(report[k]["f1-score"], 4) for k in MODEL_LABELS},
+        "trained_at": int(time.time()),
+    }
 
-    # Save model
-    joblib.dump(model, out_dir / "model.joblib")
-
-    # Save label mapping (string->int) for UI/debug
-    uniq = sorted(set(ds.labels))
-    mapping = {lab: i for i, lab in enumerate(uniq)}
-    (out_dir / "label_mapping.json").write_text(json.dumps(mapping, indent=2), encoding="utf-8")
-
-    print(f"✅ Emotion model saved to: {out_dir / 'model.joblib'}")
-    print(f"✅ Label mapping saved to: {out_dir / 'label_mapping.json'}")
-    print(f"Classes: {uniq}")
+    out = Path(args.out)
+    out.mkdir(parents=True, exist_ok=True)
+    joblib.dump(model, out / "model.joblib", compress=3)
+    (out / "metrics.json").write_text(json.dumps(metrics, indent=2), encoding="utf-8")
+    print(json.dumps(metrics, indent=2))
+    print(f"[OK] saved {out / 'model.joblib'}")
 
 
 if __name__ == "__main__":

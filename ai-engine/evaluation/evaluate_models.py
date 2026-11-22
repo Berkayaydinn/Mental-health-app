@@ -91,13 +91,19 @@ def main():
     model.fit(train_df, ds.items)
 
     results = {
+        "recommendation": {
+        "data": "demo ratings in data/sample_inputs.json (too small for meaningful numbers)",
         "k": args.k,
         "num_users": int(ds.ratings["user_id"].nunique()),
         "num_items": int(ds.ratings["item_id"].nunique()),
         "num_test": int(len(test_rows)),
         "HitRate@k": float(hit_rate_at_k(model, test_rows, args.k)),
         "MRR@k": float(mrr_at_k(model, test_rows, args.k)),
+        },
     }
+    emotion_metrics = Path(__file__).resolve().parents[1] / "models" / "emotion" / "latest" / "metrics.json"
+    if emotion_metrics.exists():
+        results["emotion"] = json.loads(emotion_metrics.read_text(encoding="utf-8"))
 
     outp = Path(args.out)
     outp.parent.mkdir(parents=True, exist_ok=True)
