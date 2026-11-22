@@ -136,10 +136,11 @@ These limitations are explicitly documented in the SRS.
 
 ## My contributions (Elif Kanık)
 
-- **Backend API (FastAPI):** endpoints for chat, mood, assessments, reports, and AI; services for assessment scoring, encryption, Firebase access, and the bridge to the AI engine; request validation; pytest suites for assessments, chat, mood, and reports.
-- **AI engine:** emotion inference and its training script; an item-similarity recommendation model with training, serving, and offline evaluation (HitRate@K, MRR@K).
-- **Assessments:** PHQ-9, WHO-5, and SCL-90 definitions used by the scoring service.
-- **Infrastructure:** Docker Compose setup, CI workflows for the AI engine, backend, and iOS tests, and Firebase security rules.
+I built the AI engine and designed the app:
+
+- **Emotion inference:** the model that reads emotion and sentiment from chat messages, plus its training script.
+- **Recommendations:** an item-similarity model that suggests coping activities, with training, serving, and offline evaluation (HitRate@K, MRR@K).
+- **App and character design:** the app's visual design and its character designs.
 - **Documentation:** the AI engine sections of the SRS, SDS, and Test Specification.
 
 ## Team
