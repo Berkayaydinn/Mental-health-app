@@ -22,7 +22,6 @@ async def make_report(authorization: str = Header(default=""), weeks: int = 1, d
     except Exception:
         raise HTTPException(status_code=401, detail="Invalid Firebase token")
 
-    
     if not 1 <= weeks <= 52:
         raise HTTPException(
             status_code=422,

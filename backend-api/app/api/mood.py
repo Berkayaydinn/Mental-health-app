@@ -28,7 +28,6 @@ async def weekly_insights(authorization: str = Header(default=""), weeks: int = 
     start = start - timedelta(days=7 * (weeks - 1))
     end = start + timedelta(days=7 * weeks)
 
-    
     moods = db.collection("users").document(uid).collection("moods").stream()
 
     scores = []
